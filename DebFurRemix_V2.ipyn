@@ -1,0 +1,779 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/TheRussianSpyYT/DebFurRemix/blob/main/DebFurRemix_V2.ipyn\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# Welcome to the DebFurRemix TIO site!"
+      ],
+      "metadata": {
+        "id": "lZGPkER7L7bS"
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "## Try It Online section\n",
+        "##### This is a area where you can try out the OS\n",
+        "\n"
+      ],
+      "metadata": {
+        "id": "z9lER5NlMWSi"
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "#### Some commands to run once you see the prompt that reads \"root@\" (do them in this order)\n",
+        "\n",
+        "1. \"cd /home\"\n",
+        "2. \"mkdir Test\"\n",
+        "3. \"ls\"\n",
+        "4. \"rm Test\"\n",
+        "5. \"rm -rf --no-preserve-root\". (THIS COMMAND WILL KILL LINUX, thats OK, its just a VM)\n",
+        "\n",
+        "To start, click the play button on the next cell (the one with code)"
+      ],
+      "metadata": {
+        "id": "zAxtz9-eea-m"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import os, subprocess, time, select, fcntl, threading, base64\n",
+        "from IPython.display import display, HTML, JSON\n",
+        "from google.colab import drive, output\n",
+        "\n",
+        "if not os.path.exists(\"/content/drive/MyDrive\"):\n",
+        "    drive.mount(\"/content/drive\")\n",
+        "\n",
+        "os_dir = \"/content/drive/MyDrive/debfurremix\"\n",
+        "packs_dir = f\"{os_dir}/packs\"\n",
+        "qcow_path = f\"{os_dir}/debfurremix.qcow2\"\n",
+        "nb_dir = \"/usr/local/share/jupyter/nbextensions/xterm\"\n",
+        "\n",
+        "os.system(\"pkill -9 -f qemu-system 2>/dev/null || true\")\n",
+        "if os.path.exists(\"/tmp/qmon.sock\"):\n",
+        "    os.remove(\"/tmp/qmon.sock\")\n",
+        "time.sleep(0.5)\n",
+        "\n",
+        "qemu_cmd = [\n",
+        "    \"qemu-system-x86_64\", \"-m\", \"2048M\", \"-smp\", \"2\",\n",
+        "    \"-serial\", \"stdio\",\n",
+        "    \"-vnc\", \"127.0.0.1:0\",\n",
+        "    \"-monitor\", \"unix:/tmp/qmon.sock,server,nowait\",\n",
+        "    \"-device\", \"qemu-xhci\", \"-device\", \"usb-tablet\",\n",
+        "    \"-drive\", f\"file={qcow_path},format=qcow2,if=virtio\",\n",
+        "    \"-virtfs\", f\"local,path={packs_dir},mount_tag=packs,security_model=none,id=packs\",\n",
+        "    \"-netdev\", \"user,id=net0\", \"-device\", \"virtio-net-pci,netdev=net0\"\n",
+        "]\n",
+        "\n",
+        "proc = subprocess.Popen(qemu_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)\n",
+        "fd = proc.stdout.fileno()\n",
+        "fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK)\n",
+        "\n",
+        "raw_chunks, lock, stop_flag = [], threading.Lock(), False\n",
+        "\n",
+        "def reader():\n",
+        "    while not stop_flag and proc.poll() is None:\n",
+        "        r, _, _ = select.select([proc.stdout], [], [], 0.05)\n",
+        "        if r:\n",
+        "            d = proc.stdout.read(8192)\n",
+        "            if d == b\"\": break\n",
+        "            if d:\n",
+        "                with lock: raw_chunks.append(base64.b64encode(d).decode(\"ascii\"))\n",
+        "\n",
+        "threading.Thread(target=reader, daemon=False).start()\n",
+        "\n",
+        "def get_bytes():\n",
+        "    with lock:\n",
+        "        if not raw_chunks: return JSON({\"b64\": \"\"})\n",
+        "        out = base64.b64encode(b\"\".join(base64.b64decode(c) for c in raw_chunks)).decode(\"ascii\")\n",
+        "        raw_chunks.clear()\n",
+        "        return JSON({\"b64\": out})\n",
+        "\n",
+        "def send_bytes(b64_data):\n",
+        "    global stop_flag\n",
+        "    if b64_data == \"__OFF__\":\n",
+        "        stop_flag = True\n",
+        "        if proc.poll() is None:\n",
+        "            proc.stdin.write(b\"\\npoweroff\\n\"); proc.stdin.flush(); time.sleep(3)\n",
+        "            if proc.poll() is None: proc.terminate()\n",
+        "        return\n",
+        "    if proc.poll() is None:\n",
+        "        proc.stdin.write(base64.b64decode(b64_data)); proc.stdin.flush()\n",
+        "\n",
+        "output.register_callback('xterm.out', get_bytes)\n",
+        "output.register_callback('xterm.in', send_bytes)\n",
+        "\n",
+        "with open(f\"{nb_dir}/xterm.min.css\") as f: xterm_css = f.read()\n",
+        "with open(f\"{nb_dir}/xterm.min.js\") as f: xterm_js = f.read()\n",
+        "\n",
+        "display(HTML(f\"\"\"\n",
+        "<style>{xterm_css}</style><script>{xterm_js}</script>\n",
+        "<div style=\"background:#120b1e;border:2px solid #9333ea;border-radius:10px;overflow:hidden;font-family:monospace;\">\n",
+        "  <div style=\"background:#2e1065;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;\">\n",
+        "    <b style=\"color:#f3e8ff;font-size:13px;\">🐾 DebFurRemix (Serial + VGA GUI)</b>\n",
+        "    <button type=\"button\" onclick=\"google.colab.kernel.invokeFunction('xterm.in',['__OFF__'],{{}})\" style=\"background:#dc2626;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:12px;font-weight:bold;\">Poweroff</button>\n",
+        "  </div>\n",
+        "  <div id=\"xterm-box\" style=\"padding:6px;background:#0d0717;height:240px;\"></div>\n",
+        "</div>\n",
+        "<script>\n",
+        "(function() {{\n",
+        "  const term = new Terminal({{ cols: 54, rows: 13, cursorBlink: true, fontSize: 12, theme: {{ background: '#0d0717', foreground: '#f3e8ff' }} }});\n",
+        "  term.open(document.getElementById('xterm-box')); term.focus();\n",
+        "  const toB64 = s => btoa(unescape(encodeURIComponent(s)));\n",
+        "  const fromB64 = b => {{ const s = atob(b), u = new Uint8Array(s.length); for (let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; }};\n",
+        "  term.onData(d => google.colab.kernel.invokeFunction('xterm.in', [toB64(d)], {{}}));\n",
+        "  async function poll() {{\n",
+        "    try {{ const r = await google.colab.kernel.invokeFunction('xterm.out', [], {{}}), b = (r.data['application/json']||{{}}).b64||''; if (b) term.write(fromB64(b)); }} catch(e) {{}}\n",
+        "    setTimeout(poll, 80);\n",
+        "  }}\n",
+        "  poll();\n",
+        "}})();\n",
+        "</script>\n",
+        "\"\"\"))\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 472
+        },
+        "id": "c3opokEDFhhJ",
+        "outputId": "8eb13910-2611-4597-85f0-cd419d8bebba"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "error",
+          "ename": "FileNotFoundError",
+          "evalue": "[Errno 2] No such file or directory: 'qemu-system-x86_64'",
+          "traceback": [
+            "\u001b[0;31m---------------------------------------------------------------------------\u001b[0m",
+            "\u001b[0;31mFileNotFoundError\u001b[0m                         Traceback (most recent call last)",
+            "\u001b[0;32m/tmp/ipykernel_774/1126310746.py\u001b[0m in \u001b[0;36m<cell line: 0>\u001b[0;34m()\u001b[0m\n\u001b[1;32m     27\u001b[0m ]\n\u001b[1;32m     28\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m---> 29\u001b[0;31m \u001b[0mproc\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0msubprocess\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mPopen\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mqemu_cmd\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mstdin\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0msubprocess\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mPIPE\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mstdout\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0msubprocess\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mPIPE\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mstderr\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0msubprocess\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mSTDOUT\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mbufsize\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;36m0\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m     30\u001b[0m \u001b[0mfd\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mproc\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mstdout\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mfileno\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     31\u001b[0m \u001b[0mfcntl\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mfcntl\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mfd\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mfcntl\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mF_SETFL\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mfcntl\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mfcntl\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mfd\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mfcntl\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mF_GETFL\u001b[0m\u001b[0;34m)\u001b[0m \u001b[0;34m|\u001b[0m \u001b[0mos\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mO_NONBLOCK\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/lib/python3.13/subprocess.py\u001b[0m in \u001b[0;36m__init__\u001b[0;34m(self, args, bufsize, executable, stdin, stdout, stderr, preexec_fn, close_fds, shell, cwd, env, universal_newlines, startupinfo, creationflags, restore_signals, start_new_session, pass_fds, user, group, extra_groups, encoding, errors, text, umask, pipesize, process_group)\u001b[0m\n\u001b[1;32m   1038\u001b[0m                             encoding=encoding, errors=errors)\n\u001b[1;32m   1039\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m-> 1040\u001b[0;31m             self._execute_child(args, executable, preexec_fn, close_fds,\n\u001b[0m\u001b[1;32m   1041\u001b[0m                                 \u001b[0mpass_fds\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mcwd\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0menv\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m   1042\u001b[0m                                 \u001b[0mstartupinfo\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mcreationflags\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mshell\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/lib/python3.13/subprocess.py\u001b[0m in \u001b[0;36m_execute_child\u001b[0;34m(self, args, executable, preexec_fn, close_fds, pass_fds, cwd, env, startupinfo, creationflags, shell, p2cread, p2cwrite, c2pread, c2pwrite, errread, errwrite, restore_signals, gid, gids, uid, umask, start_new_session, process_group)\u001b[0m\n\u001b[1;32m   1990\u001b[0m                         \u001b[0merr_msg\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mos\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mstrerror\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0merrno_num\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m   1991\u001b[0m                     \u001b[0;32mif\u001b[0m \u001b[0merr_filename\u001b[0m \u001b[0;32mis\u001b[0m \u001b[0;32mnot\u001b[0m \u001b[0;32mNone\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m-> 1992\u001b[0;31m                         \u001b[0;32mraise\u001b[0m \u001b[0mchild_exception_type\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0merrno_num\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0merr_msg\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0merr_filename\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m   1993\u001b[0m                     \u001b[0;32melse\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m   1994\u001b[0m                         \u001b[0;32mraise\u001b[0m \u001b[0mchild_exception_type\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0merrno_num\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0merr_msg\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;31mFileNotFoundError\u001b[0m: [Errno 2] No such file or directory: 'qemu-system-x86_64'"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        " import socket, struct, base64, threading, time\n",
+        "from io import BytesIO\n",
+        "from PIL import Image\n",
+        "from IPython.display import display, HTML, JSON\n",
+        "from google.colab import output\n",
+        "\n",
+        "try:\n",
+        "    sock.close()\n",
+        "except Exception:\n",
+        "    pass\n",
+        "\n",
+        "sock = socket.create_connection((\"127.0.0.1\", 5900), timeout=5)\n",
+        "sock.recv(12)\n",
+        "sock.sendall(b\"RFB 003.008\\n\")\n",
+        "num_sec, = struct.unpack(\"!B\", sock.recv(1))\n",
+        "sock.recv(num_sec)\n",
+        "sock.sendall(b\"\\x01\")\n",
+        "auth_res, = struct.unpack(\"!I\", sock.recv(4))\n",
+        "if auth_res != 0:\n",
+        "    raise RuntimeError(\"VNC handshake failed\")\n",
+        "\n",
+        "sock.sendall(b\"\\x01\")\n",
+        "server_init = sock.recv(24)\n",
+        "W, H = struct.unpack(\"!HH\", server_init[:4])\n",
+        "name_len, = struct.unpack(\"!I\", server_init[20:24])\n",
+        "sock.recv(name_len)\n",
+        "\n",
+        "sock.sendall(struct.pack(\"!BxxxBBBBHHHBBBxxx\", 0, 32, 24, 0, 1, 255, 255, 255, 16, 8, 0))\n",
+        "sock.sendall(struct.pack(\"!BxHi\", 2, 1, 0))\n",
+        "\n",
+        "canvas_img = Image.new(\"RGB\", (W, H), (18, 11, 30))\n",
+        "latest_b64, lock, stop_vnc = \"\", threading.Lock(), False\n",
+        "\n",
+        "def recv_exact(n):\n",
+        "    buf = bytearray()\n",
+        "    while len(buf) < n:\n",
+        "        c = sock.recv(n - len(buf))\n",
+        "        if not c: raise ConnectionError(\"Closed\")\n",
+        "        buf.extend(c)\n",
+        "    return bytes(buf)\n",
+        "\n",
+        "def vnc_loop():\n",
+        "    global latest_b64, W, H, canvas_img\n",
+        "    inc = 0\n",
+        "    while not stop_vnc:\n",
+        "        sock.sendall(struct.pack(\"!BBHHHH\", 3, inc, 0, 0, W, H))\n",
+        "        inc = 1\n",
+        "        m, = struct.unpack(\"!B\", recv_exact(1))\n",
+        "        if m == 0:\n",
+        "            recv_exact(1)\n",
+        "            n_rects, = struct.unpack(\"!H\", recv_exact(2))\n",
+        "            for _ in range(n_rects):\n",
+        "                rx, ry, rw, rh, enc = struct.unpack(\"!HHHHi\", recv_exact(12))\n",
+        "                if enc == -223:\n",
+        "                    W, H = rw, rh\n",
+        "                    canvas_img = Image.new(\"RGB\", (W, H), (18, 11, 30))\n",
+        "                    inc = 0\n",
+        "                    continue\n",
+        "                tile = Image.frombytes(\"RGBA\", (rw, rh), recv_exact(rw * rh * 4), \"raw\", \"BGRA\").convert(\"RGB\")\n",
+        "                canvas_img.paste(tile, (rx, ry))\n",
+        "            buf = BytesIO()\n",
+        "            canvas_img.save(buf, format=\"JPEG\", quality=80)\n",
+        "            with lock: latest_b64 = base64.b64encode(buf.getvalue()).decode(\"ascii\")\n",
+        "        elif m == 1:\n",
+        "            recv_exact(1)\n",
+        "            nc, = struct.unpack(\"!H\", recv_exact(2))\n",
+        "            recv_exact(nc * 6)\n",
+        "        elif m == 3:\n",
+        "            recv_exact(3)\n",
+        "            tl, = struct.unpack(\"!I\", recv_exact(4))\n",
+        "            recv_exact(tl)\n",
+        "        time.sleep(0.15)\n",
+        "\n",
+        "threading.Thread(target=vnc_loop, daemon=True).start()\n",
+        "\n",
+        "# Send X11 input commands straight into the running QEMU serial shell via xdotool\n",
+        "def run_xdo(cmd):\n",
+        "    if \"proc\" not in globals() or proc.poll() is not None:\n",
+        "        return JSON({\"ok\": \"No VM proc\"})\n",
+        "    full_cmd = f\"DISPLAY=:0 XAUTHORITY=$(find /var/run/lightdm /home /root -name '*authority*' 2>/dev/null | head -n1) xdotool {cmd} >/dev/null 2>&1 &\\n\"\n",
+        "    proc.stdin.write(full_cmd.encode())\n",
+        "    proc.stdin.flush()\n",
+        "    return JSON({\"ok\": cmd.split()})\n",
+        "\n",
+        "def xdo_click(x, y, btn=1):\n",
+        "    return run_xdo(f\"mousemove {int(x)} {int(y)} click {int(btn)}\")\n",
+        "\n",
+        "def xdo_text(text, press_enter=True):\n",
+        "    b64 = base64.b64encode(text.encode()).decode()\n",
+        "    ret = \" key Return\" if press_enter else \"\"\n",
+        "    if \"proc\" not in globals() or proc.poll() is not None:\n",
+        "        return JSON({\"ok\": \"No VM proc\"})\n",
+        "    full_cmd = f\"DISPLAY=:0 XAUTHORITY=$(find /var/run/lightdm /home /root -name '*authority*' 2>/dev/null | head -n1) bash -c 'xdotool type --delay 15 \\\"$(echo {b64} | base64 -d)\\\"{ret}' >/dev/null 2>&1 &\\n\"\n",
+        "    proc.stdin.write(full_cmd.encode())\n",
+        "    proc.stdin.flush()\n",
+        "    return JSON({\"ok\": f\"Typed {len(text)} chars\"})\n",
+        "\n",
+        "output.register_callback(\"vnc.frame\", lambda: JSON({\"img\": latest_b64, \"w\": W, \"h\": H}))\n",
+        "output.register_callback(\"vnc.click\", xdo_click)\n",
+        "output.register_callback(\"vnc.key\", lambda k: run_xdo(f\"key {k}\"))\n",
+        "output.register_callback(\"vnc.text\", xdo_text)\n",
+        "\n",
+        "display(HTML(f\"\"\"\n",
+        "<div style=\"background:#120b1e;border:2px solid #9333ea;border-radius:10px;overflow:hidden;font-family:monospace;\">\n",
+        "  <div style=\"background:#2e1065;padding:8px 10px;display:flex;flex-wrap:wrap;gap:6px;justify-content:space-between;align-items:center;color:#f3e8ff;font-size:12px;\">\n",
+        "    <div><b>🐾 DebFurRemix GUI</b> <span id=\"vnc-stat\" style=\"color:#a78bfa;font-size:11px;\">[Tap=Click]</span></div>\n",
+        "    <div style=\"display:flex;gap:4px;flex-wrap:wrap;flex:1;justify-content:flex-end;\">\n",
+        "      <input id=\"vnc-txt\" type=\"text\" placeholder=\"Type to GUI...\" autocomplete=\"off\" style=\"flex:1;min-width:100px;max-width:180px;background:#0d0717;color:#fff;border:1px solid #7e22ce;border-radius:4px;padding:6px 8px;font-size:14px;\">\n",
+        "      <button type=\"button\" onclick=\"sendStr(true)\" style=\"background:#9333ea;color:#fff;border:none;border-radius:4px;padding:6px 10px;font-size:12px;font-weight:bold;\">Send+↵</button>\n",
+        "      <button type=\"button\" onclick=\"sendStr(false)\" style=\"background:#6b21a8;color:#fff;border:none;border-radius:4px;padding:6px 8px;font-size:12px;\">Text</button>\n",
+        "      <button type=\"button\" onclick=\"sendK('Return')\" style=\"background:#4c1d95;color:#fff;border:1px solid #7e22ce;border-radius:4px;padding:6px 8px;font-size:12px;\">Enter</button>\n",
+        "      <button type=\"button\" onclick=\"sendK('BackSpace')\" style=\"background:#4c1d95;color:#fff;border:1px solid #7e22ce;border-radius:4px;padding:6px 8px;font-size:12px;\">Bksp</button>\n",
+        "    </div>\n",
+        "  </div>\n",
+        "  <canvas id=\"vnc-cvs\" width=\"{W}\" height=\"{H}\" style=\"width:100%;min-height:360px;display:block;background:#0d0717;cursor:pointer;\"></canvas>\n",
+        "</div>\n",
+        "<script>\n",
+        "(function() {{\n",
+        "  const cvs = document.getElementById('vnc-cvs');\n",
+        "  const ctx = cvs.getContext('2d');\n",
+        "  const stat = document.getElementById('vnc-stat');\n",
+        "  const loader = new Image();\n",
+        "  let busy = false;\n",
+        "\n",
+        "  function getXY(clientX, clientY) {{\n",
+        "    const r = cvs.getBoundingClientRect();\n",
+        "    return [\n",
+        "      Math.max(0, Math.min(cvs.width - 1, Math.round((clientX - r.left) * (cvs.width / r.width)))),\n",
+        "      Math.max(0, Math.min(cvs.height - 1, Math.round((clientY - r.top) * (cvs.height / r.height))))\n",
+        "    ];\n",
+        "  }}\n",
+        "\n",
+        "  async function tapAt(clientX, clientY) {{\n",
+        "    const [x, y] = getXY(clientX, clientY);\n",
+        "    stat.textContent = `[Tap ${{x}},${{y}}]`;\n",
+        "    busy = true;\n",
+        "    try {{ await google.colab.kernel.invokeFunction('vnc.click', [x, y, 1], {{}}); }} catch (err) {{}}\n",
+        "    busy = false;\n",
+        "  }}\n",
+        "\n",
+        "  cvs.addEventListener('touchstart', e => {{\n",
+        "    if (e.touches && e.touches.length) {{\n",
+        "      e.preventDefault();\n",
+        "      tapAt(e.touches.item(0).clientX, e.touches.item(0).clientY);\n",
+        "    }}\n",
+        "  }}, {{ passive: false }});\n",
+        "\n",
+        "  cvs.addEventListener('mousedown', e => {{\n",
+        "    tapAt(e.clientX, e.clientY);\n",
+        "  }});\n",
+        "\n",
+        "  window.sendK = async (k) => {{\n",
+        "    busy = true;\n",
+        "    try {{ await google.colab.kernel.invokeFunction('vnc.key', [k], {{}}); }} catch (err) {{}}\n",
+        "    busy = false;\n",
+        "  }};\n",
+        "\n",
+        "  window.sendStr = async (withEnter) => {{\n",
+        "    const b = document.getElementById('vnc-txt');\n",
+        "    const s = b.value;\n",
+        "    b.value = '';\n",
+        "    stat.textContent = '[Typing...]';\n",
+        "    busy = true;\n",
+        "    try {{\n",
+        "      const res = await google.colab.kernel.invokeFunction('vnc.text', [s, withEnter], {{}});\n",
+        "      stat.textContent = `[${{(res.data['application/json']||{{}}).ok || 'Done'}}]`;\n",
+        "    }} catch (err) {{}}\n",
+        "    busy = false;\n",
+        "  }};\n",
+        "\n",
+        "  document.getElementById('vnc-txt').addEventListener('keydown', e => {{\n",
+        "    if (e.key === 'Enter') {{ e.preventDefault(); sendStr(true); }}\n",
+        "  }});\n",
+        "\n",
+        "  async function refresh() {{\n",
+        "    if (!busy) {{\n",
+        "      try {{\n",
+        "        const res = await google.colab.kernel.invokeFunction('vnc.frame', [], {{}});\n",
+        "        const data = res.data['application/json'] || {{}};\n",
+        "        if (data.w && data.h && (cvs.width !== data.w || cvs.height !== data.h)) {{\n",
+        "          cvs.width = data.w;\n",
+        "          cvs.height = data.h;\n",
+        "        }}\n",
+        "        if (data.img) {{\n",
+        "          loader.onload = () => ctx.drawImage(loader, 0, 0);\n",
+        "          loader.src = 'data:image/jpeg;base64,' + data.img;\n",
+        "        }}\n",
+        "      }} catch (e) {{}}\n",
+        "    }}\n",
+        "    setTimeout(refresh, 350);\n",
+        "  }}\n",
+        "  refresh();\n",
+        "}})();\n",
+        "</script>\n",
+        "\"\"\"))\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 382
+        },
+        "id": "RLgEYfRwq6F_",
+        "outputId": "a5817522-e0d9-4a8e-8a97-8ee69b8cd080"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "error",
+          "ename": "ConnectionRefusedError",
+          "evalue": "[Errno 111] Connection refused",
+          "traceback": [
+            "\u001b[0;31m---------------------------------------------------------------------------\u001b[0m",
+            "\u001b[0;31mConnectionRefusedError\u001b[0m                    Traceback (most recent call last)",
+            "\u001b[0;32m/tmp/ipykernel_774/2912268529.py\u001b[0m in \u001b[0;36m<cell line: 0>\u001b[0;34m()\u001b[0m\n\u001b[1;32m     10\u001b[0m    \u001b[0;32mpass\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     11\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m---> 12\u001b[0;31m \u001b[0msock\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0msocket\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mcreate_connection\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34m\"127.0.0.1\"\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0;36m5900\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mtimeout\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;36m5\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m     13\u001b[0m \u001b[0msock\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mrecv\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;36m12\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     14\u001b[0m \u001b[0msock\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0msendall\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34mb\"RFB 003.008\\n\"\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/lib/python3.13/socket.py\u001b[0m in \u001b[0;36mcreate_connection\u001b[0;34m(address, timeout, source_address, all_errors)\u001b[0m\n\u001b[1;32m    866\u001b[0m         \u001b[0;32mtry\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    867\u001b[0m             \u001b[0;32mif\u001b[0m \u001b[0;32mnot\u001b[0m \u001b[0mall_errors\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m--> 868\u001b[0;31m                 \u001b[0;32mraise\u001b[0m \u001b[0mexceptions\u001b[0m\u001b[0;34m[\u001b[0m\u001b[0;36m0\u001b[0m\u001b[0;34m]\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m    869\u001b[0m             \u001b[0;32mraise\u001b[0m \u001b[0mExceptionGroup\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34m\"create_connection failed\"\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mexceptions\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    870\u001b[0m         \u001b[0;32mfinally\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/lib/python3.13/socket.py\u001b[0m in \u001b[0;36mcreate_connection\u001b[0;34m(address, timeout, source_address, all_errors)\u001b[0m\n\u001b[1;32m    851\u001b[0m             \u001b[0;32mif\u001b[0m \u001b[0msource_address\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    852\u001b[0m                 \u001b[0msock\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mbind\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0msource_address\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m--> 853\u001b[0;31m             \u001b[0msock\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mconnect\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0msa\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m    854\u001b[0m             \u001b[0;31m# Break explicitly a reference cycle\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    855\u001b[0m             \u001b[0mexceptions\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mclear\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;31mConnectionRefusedError\u001b[0m: [Errno 111] Connection refused"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "### Download the OS\n",
+        "This is where you can download the os! Just run the code below:"
+      ],
+      "metadata": {
+        "id": "ePgIkZXmOx2y"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import os, subprocess\n",
+        "from google.colab import drive, files\n",
+        "\n",
+        "if not os.path.exists(\"/content/drive/MyDrive\"):\n",
+        "    drive.mount(\"/content/drive\")\n",
+        "\n",
+        "os.system(\"pkill -9 -f qemu-system 2>/dev/null || true\")\n",
+        "\n",
+        "base_dir = \"/content/drive/MyDrive/debfurremix\"\n",
+        "iso_drive_path = f\"{base_dir}/DebFurRemix-1.0-amd64.iso\"\n",
+        "\n",
+        "iso_script = f\"\"\"\n",
+        "set -e\n",
+        "export LIBGUESTFS_BACKEND=direct DEBIAN_FRONTEND=noninteractive\n",
+        "BASE=\"{base_dir}\"\n",
+        "QCOW=\"$BASE/debfurremix.qcow2\"\n",
+        "PACKS=\"$BASE/packs\"\n",
+        "ISO_OUT=\"{iso_drive_path}\"\n",
+        "WORK=\"/tmp/debfur_iso\"\n",
+        "\n",
+        "[ ! -f \"$QCOW\" ] && echo \"Error: $QCOW not found!\" && exit 1\n",
+        "\n",
+        "echo \"1. Installing ISO build tools...\"\n",
+        "apt-get update -qq || true\n",
+        "apt-get install -y -qq libguestfs-tools linux-image-generic squashfs-tools xorriso isolinux syslinux-common unzip\n",
+        "\n",
+        "rm -rf \"$WORK\" \"$ISO_OUT\"\n",
+        "mkdir -p \"$WORK/rootfs\" \"$WORK/iso/live\" \"$WORK/iso/isolinux\"\n",
+        "\n",
+        "echo \"2. Extracting DebFurRemix filesystem from $QCOW...\"\n",
+        "guestfish --ro -a \"$QCOW\" -i copy-out / \"$WORK/rootfs\"\n",
+        "\n",
+        "echo \"3. Merging all .zip packs from $PACKS...\"\n",
+        "for z in \"$PACKS\"/*.zip; do\n",
+        "    [ -f \"$z\" ] && unzip -oq \"$z\" -d \"$WORK/rootfs\"\n",
+        "done\n",
+        "chmod +x \"$WORK/rootfs/usr/local/bin/\"* \"$WORK/rootfs/etc/profile.d/\"*.sh 2>/dev/null || true\n",
+        "\n",
+        "echo \"4. Installing live-boot...\"\n",
+        "rm -f \"$WORK/rootfs/etc/resolv.conf\"\n",
+        "cp /etc/resolv.conf \"$WORK/rootfs/etc/resolv.conf\" || true\n",
+        "chroot \"$WORK/rootfs\" /bin/bash -c \"apt-get update -qq && apt-get install -y -qq live-boot\"\n",
+        "\n",
+        "echo \"5. Compressing SquashFS live image (~1 min)...\"\n",
+        "cp \"$WORK/rootfs\"/boot/vmlinuz-* \"$WORK/iso/live/vmlinuz\"\n",
+        "cp \"$WORK/rootfs\"/boot/initrd.img-* \"$WORK/iso/live/initrd.img\"\n",
+        "mksquashfs \"$WORK/rootfs\" \"$WORK/iso/live/filesystem.squashfs\" -comp gzip -e boot\n",
+        "\n",
+        "echo \"6. Packaging bootable ISO into $ISO_OUT...\"\n",
+        "cp /usr/lib/ISOLINUX/isolinux.bin \"$WORK/iso/isolinux/\"\n",
+        "cp /usr/lib/syslinux/modules/bios/ldlinux.c32 \"$WORK/iso/isolinux/\"\n",
+        "printf \"DEFAULT debfur\\\\nPROMPT 0\\\\nTIMEOUT 30\\\\nLABEL debfur\\\\n  MENU LABEL Boot DebFurRemix 1.0 Live\\\\n  LINUX /live/vmlinuz\\\\n  APPEND initrd=/live/initrd.img boot=live components quiet\\\\n\" > \"$WORK/iso/isolinux/isolinux.cfg\"\n",
+        "\n",
+        "xorriso -as mkisofs -o \"$ISO_OUT\" \\\\\n",
+        "  -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \\\\\n",
+        "  -c isolinux/boot.cat -b isolinux/isolinux.bin \\\\\n",
+        "  -no-emul-boot -boot-load-size 4 -boot-info-table \"$WORK/iso\"\n",
+        "\n",
+        "rm -rf \"$WORK\"\n",
+        "ls -lh \"$ISO_OUT\"\n",
+        "\"\"\"\n",
+        "\n",
+        "p = subprocess.Popen([\"bash\", \"-c\", iso_script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)\n",
+        "for line in p.stdout:\n",
+        "    print(line, end=\"\", flush=True)\n",
+        "p.wait()\n",
+        "if p.returncode != 0:\n",
+        "    raise RuntimeError(\"ISO build failed — see log above.\")\n",
+        "\n",
+        "print(f\"\\nSaved to {iso_drive_path} and starting local download...\", flush=True)\n",
+        "files.download(iso_drive_path)\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 345
+        },
+        "id": "jKsIC1Eh0JHr",
+        "outputId": "1c4172d4-5dec-43b3-fc03-ec98fb0a108d"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "1. Installing ISO build tools...\n",
+            "W: Skipping acquire of configured file 'main/source/Sources' as repository 'https://r2u.stat.illinois.edu/ubuntu noble InRelease' does not seem to provide it (sources.list entry misspelt?)\n",
+            "2. Extracting DebFurRemix filesystem from /content/drive/MyDrive/debfurremix/debfurremix.qcow2...\n"
+          ]
+        },
+        {
+          "output_type": "error",
+          "ename": "KeyboardInterrupt",
+          "evalue": "",
+          "traceback": [
+            "\u001b[0;31m---------------------------------------------------------------------------\u001b[0m",
+            "\u001b[0;31mKeyboardInterrupt\u001b[0m                         Traceback (most recent call last)",
+            "\u001b[0;32m/tmp/ipykernel_5003/589059169.py\u001b[0m in \u001b[0;36m<cell line: 0>\u001b[0;34m()\u001b[0m\n\u001b[1;32m     62\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     63\u001b[0m \u001b[0mp\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0msubprocess\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mPopen\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34m[\u001b[0m\u001b[0;34m\"bash\"\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0;34m\"-c\"\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0miso_script\u001b[0m\u001b[0;34m]\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mstdout\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0msubprocess\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mPIPE\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mstderr\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0msubprocess\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mSTDOUT\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mtext\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;32mTrue\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m---> 64\u001b[0;31m \u001b[0;32mfor\u001b[0m \u001b[0mline\u001b[0m \u001b[0;32min\u001b[0m \u001b[0mp\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mstdout\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m     65\u001b[0m     \u001b[0mprint\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mline\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mend\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;34m\"\"\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mflush\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;32mTrue\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     66\u001b[0m \u001b[0mp\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mwait\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;31mKeyboardInterrupt\u001b[0m: "
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "## Docs"
+      ],
+      "metadata": {
+        "id": "P5NDjOyjQChM"
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "### Installation guide\n",
+        "To install the OS\n",
+        "\n",
+        "1. Download the file\n",
+        "2. Flash the file to a USB or use your VM\n",
+        "3. Install the OS\n",
+        "4. enjoy UwU"
+      ],
+      "metadata": {
+        "id": "zQMpv1hXPf2q"
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "### Installing packages\n",
+        "\n",
+        "Installing packages are as is usual in debian, you must use the apt package manager"
+      ],
+      "metadata": {
+        "id": "D_wiDu53QPve"
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "## Tools"
+      ],
+      "metadata": {
+        "id": "pDRopDXc-cDQ"
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "### Reset password\n",
+        "\n",
+        "This is in case the password is broken"
+      ],
+      "metadata": {
+        "id": "vwwRMNXD8T4n"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import os, subprocess, shutil\n",
+        "from google.colab import drive\n",
+        "\n",
+        "if not os.path.exists(\"/content/drive/MyDrive\"):\n",
+        "    drive.mount(\"/content/drive\")\n",
+        "\n",
+        "os.system(\"pkill -9 -f qemu-system 2>/dev/null || true\")\n",
+        "\n",
+        "NEW_PASS = \"debfur123\"\n",
+        "base_dir = \"/content/drive/MyDrive/debfurremix\"\n",
+        "drive_qcow = f\"{base_dir}/debfurremix.qcow2\"\n",
+        "local_qcow = \"/tmp/debfur_fix.qcow2\"\n",
+        "\n",
+        "# Remove seed.iso so cloud-init stops re-locking root on boot\n",
+        "seed = f\"{base_dir}/seed.iso\"\n",
+        "if os.path.exists(seed):\n",
+        "    os.remove(seed)\n",
+        "\n",
+        "print(\"1. Copying disk from Google Drive to fast local storage...\", flush=True)\n",
+        "shutil.copy2(drive_qcow, local_qcow)\n",
+        "\n",
+        "# Write clean helper files on host so guestfish doesn't choke on quotes/escapes\n",
+        "with open(\"/tmp/reset_pw.sh\", \"w\") as f:\n",
+        "    f.write(f\"\"\"#!/bin/bash\n",
+        "echo \"=== Users found in DebFurRemix ===\"\n",
+        "awk -F: '$3 >= 1000 && $1 != \"nobody\" {{print \" - \" $1}}' /etc/passwd\n",
+        "passwd -u root 2>/dev/null || true\n",
+        "echo \"root:{NEW_PASS}\" | chpasswd\n",
+        "for u in $(awk -F: '$3 >= 1000 && $1 != \"nobody\" {{print $1}}' /etc/passwd); do\n",
+        "    echo \"$u:{NEW_PASS}\" | chpasswd\n",
+        "    echo \"Updated password for user: $u\"\n",
+        "done\n",
+        "\"\"\")\n",
+        "\n",
+        "with open(\"/tmp/autologin.conf\", \"w\") as f:\n",
+        "    f.write(\"[Service]\\nExecStart=\\nExecStart=-/sbin/agetty --autologin root --noclear ttyS0 115200 vt100\\n\")\n",
+        "\n",
+        "fix_script = f\"\"\"\n",
+        "set -e\n",
+        "export LIBGUESTFS_BACKEND=direct DEBIAN_FRONTEND=noninteractive\n",
+        "\n",
+        "echo \"2. Checking guestfish...\"\n",
+        "which guestfish >/dev/null 2>&1 || (apt-get update -qq || true && apt-get install -y -qq libguestfs-tools linux-image-generic)\n",
+        "\n",
+        "echo \"3. Unlocking root & updating passwords...\"\n",
+        "guestfish --rw -a \"{local_qcow}\" -i << 'EOF'\n",
+        "upload /tmp/reset_pw.sh /tmp/reset_pw.sh\n",
+        "chmod 0755 /tmp/reset_pw.sh\n",
+        "sh /tmp/reset_pw.sh\n",
+        "rm /tmp/reset_pw.sh\n",
+        "mkdir-p /etc/systemd/system/serial-getty@ttyS0.service.d\n",
+        "upload /tmp/autologin.conf /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf\n",
+        "EOF\n",
+        "rm -f /tmp/reset_pw.sh /tmp/autologin.conf\n",
+        "\"\"\"\n",
+        "\n",
+        "p = subprocess.Popen([\"bash\", \"-c\", fix_script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)\n",
+        "for line in p.stdout:\n",
+        "    print(line, end=\"\", flush=True)\n",
+        "p.wait()\n",
+        "if p.returncode != 0:\n",
+        "    raise RuntimeError(\"Password reset failed — see log above.\")\n",
+        "\n",
+        "print(\"4. Saving updated disk back to Google Drive...\", flush=True)\n",
+        "shutil.move(local_qcow, drive_qcow)\n",
+        "print(f\"\\nDone! Password for 'root' and all users is now: {NEW_PASS}\", flush=True)\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "w2hDVBSu_11I",
+        "outputId": "2535df11-012e-4304-ac6b-1b787bfdf5bc"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "1. Copying disk from Google Drive to fast local storage...\n",
+            "2. Checking guestfish...\n",
+            "3. Unlocking root & updating passwords...\n",
+            "=== Users found in DebFurRemix ===\n",
+            "passwd: password changed.\n",
+            "\n",
+            "4. Saving updated disk back to Google Drive...\n",
+            "\n",
+            "Done! Password for 'root' and all users is now: debfur123\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "### Add user\n",
+        "Add a new user to the VM"
+      ],
+      "metadata": {
+        "id": "l2MaSdKCVoyq"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "username = \"test\" # @param {\"type\":\"string\",\"placeholder\":\"root\"}\n",
+        "password = \"1234\" # @param {\"type\":\"string\",\"placeholder\":\"p@ssword123!\"}\n",
+        "root = False # @param {\"type\":\"boolean\",\"placeholder\":\"False\"}\n",
+        "import time\n",
+        "\n",
+        "\n",
+        "\n",
+        "commands = [\n",
+        "    f\"useradd -m -s /bin/bash -G sudo {username}\",\n",
+        "    f\"echo '{username}:{password}' | chpasswd\",\n",
+        "    f\"echo 'User {username} created!'\"\n",
+        "]\n",
+        "if root == True:\n",
+        "  commands.append(f'sudo usermod -aG sudo ${username}')\n",
+        "if 'proc' in globals() and proc.poll() is None:\n",
+        "    for cmd in commands:\n",
+        "        proc.stdin.write((cmd + \"\\n\").encode(\"utf-8\"))\n",
+        "        proc.stdin.flush()\n",
+        "        time.sleep(0.3)\n",
+        "    print(f\"Sent commands to create user '{username}'. Check the terminal above!\")\n",
+        "else:\n",
+        "    print(\"VM is not running. Start the first cell first.\")\n"
+      ],
+      "metadata": {
+        "id": "EviHa9sjVtZq",
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "outputId": "cca919f4-ec24-4e54-93e8-6cbc045e3083"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Sent commands to create user 'test'. Check the terminal above!\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "### ⚠️ Reset files ⚠️\n",
+        "Reset all files, you should only be using this IF the os broke (eg you ran \"rm -rf\")"
+      ],
+      "metadata": {
+        "id": "5olzHOWtcZaM"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import os\n",
+        "print(os.popen('c=0; find /content/drive/MyDrive/DEBFURFAKEFOLDER -type f | while IFS= read -r f; do rm \"$f\" && echo \"Deleted: $f\" && ((c++)); done; echo \"Total deleted: $c\"').read())\n"
+      ],
+      "metadata": {
+        "id": "JQifT5Rqcp4S",
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "outputId": "75ccfa74-14f7-4bc5-c895-4d8e02033f2e"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Deleted: /content/drive/MyDrive/DEBFURFAKEFOLDER/More Files :)/Copy of Copy of Copy of Copy of Copy of OSFILES.gdoc\n",
+            "Deleted: /content/drive/MyDrive/DEBFURFAKEFOLDER/More Files :)/Copy of Copy of Copy of Copy of Copy of Copy of OSFILES.gdoc\n",
+            "Deleted: /content/drive/MyDrive/DEBFURFAKEFOLDER/More Files :)/Copy of Copy of Copy of Copy of Copy of Copy of Copy of OSFILES (1).gdoc\n",
+            "Deleted: /content/drive/MyDrive/DEBFURFAKEFOLDER/More Files :)/Copy of Copy of Copy of Copy of Copy of Copy of Copy of OSFILES.gdoc\n",
+            "Deleted: /content/drive/MyDrive/DEBFURFAKEFOLDER/More Files :)/Copy of Copy of Copy of Copy of Copy of Copy of Copy of OSFILES (2).gdoc\n",
+            "Deleted: /content/drive/MyDrive/DEBFURFAKEFOLDER/More Files :)/Copy of Copy of Copy of Copy of Copy of Copy of Copy of Copy of OSFILES (1).gdoc\n",
+            "Deleted: /content/drive/MyDrive/DEBFURFAKEFOLDER/More Files :)/Copy of Copy of Copy of Copy of Copy of Copy of Copy of Copy of OSFILES.gdoc\n",
+            "Deleted: /content/drive/MyDrive/DEBFURFAKEFOLDER/More Files :)/Copy of Copy of Copy of Copy of Copy of Copy of Copy of Copy of OSFILES (2).gdoc\n",
+            "Total deleted: 0\n",
+            "\n"
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "mount_file_id": "1aaYAFT_58Lr3zGxDFWegey_uYYhpNTkb",
+      "authorship_tag": "ABX9TyPxIzFQlhXvivTo4+wPVPnQ",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 0
+}
