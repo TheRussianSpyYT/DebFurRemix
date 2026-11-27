@@ -18,4 +18,4 @@ jobs:
         env:
           CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
         run: |
-          git push --mirror https://therussianspyyt:${CODEBERG_TOKEN}@codeberg.org/therussianspyyt/DebFurRemix-Pulled_from_github.git
+          git push --mirror https://TheRussianSpyYT:${CODEBERG_TOKEN}@codeberg.org/TheRussianSpyYT/DebFurRemix-Pulled_from_github.git
