@@ -16,6 +16,6 @@ jobs:
 
       - name: Push to Codeberg
         env:
-          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+          CODEBERG_TOKEN: ${{ secrets.send_to_codeberg }}
         run: |
           git push --mirror https://TheRussianSpyYT:${CODEBERG_TOKEN}@codeberg.org/TheRussianSpyYT/DebFurRemix-Pulled_from_github.git
